@@ -1,0 +1,28 @@
+{
+  "name": "my-electron-app",
+  "version": "1.0.0",
+  "description": "Interactive Map with Error Waves",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "build": {
+    "appId": "com.yourdomain.yourapp",
+    "win": {
+      "target": "nsis"
+    }
+  },
+  "author": "Your Name",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^25.2.0",
+    "electron-builder": "^24.6.0"
+  },
+  "dependencies": {
+    "@electron/remote": "^2.1.2",
+    "jquery": "^3.6.0",
+    "leaflet": "^1.9.4",
+    "papaparse": "^5.3.2"
+  }
+}
