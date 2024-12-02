@@ -1,18 +1,33 @@
-///////// For Mac
+# Interactive Map Application
 
-Use Visual Studio Code
+## For Mac
 
-install live server extension
+### Steps to Run
 
-right click on index.html in JS_Code folder and click open with live server
+1. **Use Visual Studio Code**
+2. **Install Live Server Extension**
+   - Open Visual Studio Code.
+   - Search for "**Live Server**" and click **Install**.
+3. **Launch the Application**
+   - Right-click on `index.html` located in the `JS_Code` folder.
+   - Select **Open with Live Server** from the context menu.
 
+## For Windows
 
-/////// For Windows
+### Steps to Run
 
-Go to my-electron-app folder and run the following:
+1. **Navigate to the Project Directory**
+   - Open **Command Prompt**.
+   - Change directory to the `my-electron-app` folder:
+2. **Install Dependencies**
+   ```bash
+   npm install
+3. **Build**
+   ```bash
+   npm run build
+4. **Usage**
+   ```bash
+   npm start
 
-1. npm install
-
-2. npm run build
-
-3. npm start or my-electron-app/dist/ open the exe file
+   or
+   my-electron-app/dist and open the exe file
