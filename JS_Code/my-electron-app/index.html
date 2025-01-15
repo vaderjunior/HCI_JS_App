@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Interactive Map with Error Waves</title>
+    <title>Interactive Map with Error Waves (All Lines Shown)</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <!-- Include Leaflet CSS and JavaScript -->
+    
     <link
         rel="stylesheet"
         href="node_modules/leaflet/dist/leaflet.css"
@@ -14,27 +14,27 @@
         src="node_modules/leaflet/dist/leaflet.js"
     ></script>
 
-    <!-- Include jQuery -->
+    
     <script src="node_modules/jquery/dist/jquery.min.js"></script>
-    <!-- Include Papa Parse -->
+    
     <script src="node_modules/papaparse/papaparse.min.js"></script>
 
-    <!-- Custom styles -->
+    
     <style>
-        /* Reset margins and paddings */
+        
         html, body {
             margin: 0;
             padding: 0;
             height: 100%;
         }
 
-        /* Set the container to flex display */
+        
         body {
             display: flex;
             flex-direction: column;
         }
 
-        /* Adjust controls */
+        
         #controls {
             padding: 10px;
             background-color: #f2f2f2;
@@ -67,13 +67,13 @@
             color: red;
         }
 
-        /* Map container styles */
+        
         #map {
-            flex: 1; /* This makes the map take the remaining space */
+            flex: 1; 
             width: 100%;
         }
 
-        /* Modal styles */
+        
         .modal {
             display: none;
             position: fixed;
@@ -120,30 +120,59 @@
         .resolve-button:hover {
             background-color: #45a049;
         }
-        .variable-control {
-            display: flex;
-            align-items: center;
-            margin-bottom: 10px;
+
+        /* Puzzle 3×3 table */
+        #puzzleGrid {
+            display: grid;
+            grid-template-columns: repeat(3, 60px);
+            grid-template-rows: repeat(3, 60px);
+            gap: 10px;
+            margin-top: 20px;
         }
-        .variable-label {
-            flex: 1;
+        .puzzle-cell {
+            width: 60px; 
+            height: 60px;
+            border: 1px solid #ccc;
+            font-size: 24px;
+            text-align: center;
+            line-height: 60px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .puzzle-cell:hover {
+            background-color: #f2f2f2;
+        }
+
+        
+        #participantModal .modal-content {
+            width: 30%;
+        }
+        #participantInput {
+            width: 100%;
+            padding: 10px;
+            margin-top: 10px;
             font-size: 16px;
         }
-        .variable-slider {
-            flex: 2;
-            margin-left: 10px;
+        #submitParticipant {
+            margin-top: 15px;
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 4px;
         }
-        .variable-value {
-            width: 50px;
-            text-align: center;
+        #submitParticipant:hover {
+            background-color: #45a049;
         }
     </style>
 </head>
 <body>
     <!-- Controls Section -->
     <div id="controls">
-        <button id="startButtonSet1">Start Wave Set 1</button>
-        <button id="startButtonSet2">Start Wave Set 2</button>
+        <button id="startButtonSet1" disabled>Start Wave Set 1</button>
+        <button id="startButtonSet2" disabled>Start Wave Set 2</button>
         <span id="waveIndicator"></span>
         <span id="errorCounter">Active Errors: 0</span>
     </div>
@@ -151,12 +180,22 @@
     <!-- Map Container -->
     <div id="map"></div>
 
+    <!-- Participant Number Modal -->
+    <div id="participantModal" class="modal">
+        <div class="modal-content">
+            <span class="close" id="participantClose">&times;</span>
+            <h2>Enter Participant Number</h2>
+            <input type="number" id="participantInput" placeholder="e.g., 1" min="1">
+            <button id="submitParticipant">Submit</button>
+        </div>
+    </div>
+
     <!-- Modal for Resolving Errors -->
     <div id="resolveModal" class="modal">
         <div class="modal-content">
             <span class="close" id="resolveClose">&times;</span>
             <div id="errorDetails">
-                <!-- Error details will be injected here -->
+                
             </div>
             <button id="resolveButton" class="resolve-button" disabled>Resolve Error</button>
         </div>
@@ -167,163 +206,122 @@
         <div class="modal-content">
             <span class="close" id="completionClose">&times;</span>
             <div id="completionMessage">
-                <!-- Completion message will be injected here -->
+                
             </div>
         </div>
     </div>
 
-    <!-- Custom JavaScript -->
+    
     <script>
-        // Access Node.js modules
+        
         const path = window.nodeRequire('path');
         const fs = window.nodeRequire('fs');
         const { dialog } = window.nodeRequire('@electron/remote');
 
         // Configuration
-        const WAVE_INTERVAL = 5000;        // Milliseconds between waves
-        const ERROR_INTERVAL = 1000;       // Milliseconds between errors within a wave
+        const WAVE_INTERVAL = 20000;       
+        const ERROR_INTERVAL = 1000;       
+        const TRANSITION_CHECK_INTERVAL = 1000; 
+        const WAIT_TIME_AFTER_LAST_WAVE = 1 * 40 * 1000; // 2 minutes
 
-        // Error Categories
-        const ERROR_CATEGORIES = ['critical', 'intermediate', 'low'];
-        const CATEGORY_COLORS = {
-            'critical': 'red',
-            'intermediate': 'orange',
-            'low': 'yellow'
-        };
-        const VARIABLES_PER_CATEGORY = {
-            'critical': 3,
-            'intermediate': 2,
-            'low': 1
-        };
+        
+        const MASTER_PUZZLE_SYMBOLS = [ "↖", "ω", "○", "□", "L", "∇", "Σ", "Δ", "★" ];
 
-        // Variables and their default values
-        const VARIABLES = {
-            'Tension': { min: 0, max: 100, unit: 'kN' },
-            'Temperature': { min: -40, max: 60, unit: '°C' },
-            'Voltage': { min: 0, max: 400, unit: 'kV' },
-            'Power': { min: 0, max: 1000, unit: 'MW' },
-            'Capacity': { min: 0, max: 100, unit: '%' }
-        };
+        
+        const map = L.map('map', {
+            center: [46.603354, 1.888334],
+            zoom: 6.5,
+            zoomControl: false,
+            scrollWheelZoom: false,
+            doubleClickZoom: false,
+            boxZoom: false,
+            touchZoom: false,
+            dragging: true
+        });
 
-        // Initialize map
-        const map = L.map('map').setView([46.603354, 1.888334], 6);
-
-        // Create a custom pane for the circle markers
-        map.createPane('circlesPane');
-        map.getPane('circlesPane').style.zIndex = 399; // Lower than the default overlayPane (which is 400)
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap contributors'
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
         }).addTo(map);
 
-        // Store Leaflet polyline objects
-        const lineObjects = {};
-        const lineData = [];
+        
+        map.createPane('circlesPane');
+        map.getPane('circlesPane').style.zIndex = 399;
 
-        // Global variable for current wave
+        
+        let lineData = [];
+        let lineObjects = {};   
+        let errorMarkers = {};
+        let affectedLinesIndices = new Set(); 
+
+        
+        let finalLogs = [];
+
+        let preDeterminedErrors = [];
         let currentWaveIndex = 0;
         let waveSequence = [];
-
-        // Track already affected lines
-        const affectedLinesIndices = new Set();
-
-        // Error logs to store response times
-        const errorLogs = [];
-
-        // Store circle markers for errors
-        const errorMarkers = {};
-
-        // Flag to check if CSV has been downloaded
+        let participantNumber = null;
         let csvDownloaded = false;
+        let lastWaveFinishedTime = null;
 
-        // Pre-determined errors loaded from CSV
-        let preDeterminedErrors = [];
-
-        // Load CSV data synchronously
+        
         const moreDataCSV = fs.readFileSync(path.join(__dirname, 'more-data.csv'), 'utf8');
-        const errorsCSV = fs.readFileSync(path.join(__dirname, 'errors.csv'), 'utf8');
+        const errorsCSV   = fs.readFileSync(path.join(__dirname, 'errors2.csv'), 'utf8');
 
-        // Load and parse the CSV file for line data
         Papa.parse(moreDataCSV, {
             header: true,
             skipEmptyLines: true,
-            delimiter: ';',  // Adjust based on your CSV
+            delimiter: ';',
             complete: function(results) {
-                const data = results.data;
-
-                data.forEach((row, index) => {
-                    // Parse the 'Geo Shape' column
-                    try {
-                        let geoShape = row['Geo Shape'].replace(/'/g, '"');
-                        let geoDict = JSON.parse(geoShape);
-                        let coordinates = geoDict['coordinates'];
-
-                        // Convert coordinates to Leaflet format (lat, lng)
-                        let latlngs = coordinates.map(coord => [coord[1], coord[0]]);
-
-                        // Create popup content
-                        let popupContent = `
-                            <b>Type:</b> ${row['Type ouvrage']}<br>
-                            <b>Line Code:</b> ${row['Code ligne 1']}<br>
-                            <b>Line Name:</b> ${row['Nom ligne 1']}<br>
-                            <b>Owner:</b> ${row['Propriétaire ligne 1']}<br>
-                            <b>Status:</b> ${row['Etat']}<br>
-                            <b>Voltage:</b> ${row['TENSION']}<br>
-                        `;
-
-                        // Add line data
-                        lineData.push({
-                            id: index,
-                            coordinates: latlngs,
-                            popup: popupContent,
-                            attributes: row  // Store all attributes for error display
-                        });
-
-                    } catch (e) {
-                        console.error(`Error parsing Geo Shape for row ${index}:`, e);
-                    }
-                });
-
-                // Initialize lines on the map
-                initializeLines();
-
-                // After lines are loaded, load the errors
+                lineData = parseLineData(results.data);
+                
+                drawAllLinesAsGreen();
                 loadPreDeterminedErrors();
             },
-            error: function(error) {
-                console.error("Error parsing CSV:", error);
+            error: function(err) {
+                console.error("Error parsing more-data.csv:", err);
             }
         });
 
-        function initializeLines() {
-            // Initialize line objects and popups
-            lineData.forEach((line) => {
-                const polyline = L.polyline(line.coordinates, {
-                    color: "green",
-                    weight: 3,
-                    opacity: 0.8,
+        function parseLineData(dataRows) {
+            const arr = [];
+            dataRows.forEach((row, index) => {
+                try {
+                    let geoShape = row['Geo Shape'].replace(/'/g, '"');
+                    let geoDict = JSON.parse(geoShape);
+                    let coordinates = geoDict['coordinates'];
+
+                    let latlngs = coordinates.map(c => [c[1], c[0]]);
+                    let popupContent = `
+                        <b>Type:</b> ${row['Type ouvrage']}<br>
+                        <b>Line Code:</b> ${row['Code ligne 1']}<br>
+                        <b>Line Name:</b> ${row['Nom ligne 1']}<br>
+                        <b>Owner:</b> ${row['Propriétaire ligne 1']}<br>
+                        <b>Status:</b> ${row['Etat']}<br>
+                        <b>Voltage:</b> ${row['TENSION']}<br>
+                    `;
+                    arr.push({
+                        id: index,
+                        coordinates: latlngs,
+                        popup: popupContent
+                    });
+                } catch (e) {
+                    console.error(`Error parsing row ${index}:`, e);
+                }
+            });
+            return arr;
+        }
+
+        
+        function drawAllLinesAsGreen() {
+            lineData.forEach(line => {
+                const poly = L.polyline(line.coordinates, {
+                    color: 'green',
+                    weight: 5,
+                    opacity: 0.7
                 }).addTo(map);
-
-                polyline.bindPopup(line.popup);
-
-                // Attach click event to handle error resolution
-                polyline.on('click', function(e) {
-                    if (polyline.errorData) {
-                        // Show error details in modal
-                        const errorData = polyline.errorData;
-
-                        // Build the error resolution UI
-                        buildErrorResolutionUI(errorData);
-
-                        $('#resolveModal').show();
-
-                        // Store the line ID and error ID in the resolve button
-                        $('#resolveButton').data('line-id', line.id);
-                        $('#resolveButton').data('error-id', errorData.errorId);
-                    }
-                });
-
-                lineObjects[line.id] = polyline;
+                poly.bindPopup(line.popup);
+                
+                lineObjects[line.id] = poly;
             });
         }
 
@@ -333,53 +331,46 @@
                 skipEmptyLines: true,
                 complete: function(results) {
                     preDeterminedErrors = results.data;
+                    console.log(`Loaded ${preDeterminedErrors.length} errors from errors2.csv.`);
                 },
-                error: function(error) {
-                    console.error("Error loading errors.csv:", error);
+                error: function(err) {
+                    console.error("Error loading errors2.csv:", err);
                 }
             });
         }
 
-        // Handle Start Buttons Click
+        // Wave start
         $('#startButtonSet1').click(function() {
-            waveSequence = Array.from({length: 10}, (_, i) => i + 1); // Waves 1 to 10
-            startWaves();
+            waveSequence = Array.from({length: 10}, (_, i) => i + 1);
+            startWaves('Set1');
             $(this).prop('disabled', true);
             $('#startButtonSet2').prop('disabled', true);
         });
-
         $('#startButtonSet2').click(function() {
             waveSequence = [5,6,7,8,9,10,1,2,3,4];
-            startWaves();
+            startWaves('Set2');
             $(this).prop('disabled', true);
             $('#startButtonSet1').prop('disabled', true);
         });
 
-        // Update active error counter
-        function updateErrorCounter() {
-            const activeErrors = affectedLinesIndices.size;
-            $('#errorCounter').text(`Active Errors: ${activeErrors}`);
-        }
-
-        // Simulate error waves using pre-determined errors
-        function startWaves() {
+        function startWaves(waveSet) {
             function processWave() {
                 if (currentWaveIndex >= waveSequence.length) {
+                    // All waves done
                     $('#waveIndicator').text('');
-                    // Start a 2-minute timer to download CSV if not all errors are resolved
-                    setTimeout(function() {
+                    lastWaveFinishedTime = Date.now();
+                    
+                    setTimeout(() => {
                         if (!csvDownloaded) {
-                            downloadCSVData();
+                            downloadCSVData(waveSet);
                         }
-                    }, 2 * 60 * 1000);
+                    }, WAIT_TIME_AFTER_LAST_WAVE);
                     return;
                 }
-
                 const waveNumber = waveSequence[currentWaveIndex];
                 $('#waveIndicator').text(`Wave ${waveNumber} in progress`);
 
-                const errorsInWave = preDeterminedErrors.filter(error => parseInt(error.WaveNumber) === waveNumber);
-
+                const errorsInWave = preDeterminedErrors.filter(e => parseInt(e.WaveNumber) === waveNumber);
                 let errorIndex = 0;
 
                 function emitError() {
@@ -388,176 +379,269 @@
                         setTimeout(processWave, WAVE_INTERVAL);
                         return;
                     }
-
                     const errorData = errorsInWave[errorIndex];
                     generateErrorFromPreDetermined(errorData);
                     errorIndex++;
                     setTimeout(emitError, ERROR_INTERVAL);
                 }
-
                 emitError();
             }
-
             processWave();
         }
 
-        // Function to generate an error from pre-determined data
+        
         function generateErrorFromPreDetermined(errorData) {
-            const waveNumber = parseInt(errorData.WaveNumber);
+            const waveNumber  = parseInt(errorData.WaveNumber);
             const errorNumber = parseInt(errorData.ErrorNumber);
-            const lineId = parseInt(errorData.LineId);
-            const errorCategory = errorData.ErrorCategory;
+            const lineId      = parseInt(errorData.LineId);
 
-            const selectedLineData = lineData.find(line => line.id === lineId);
-
-            if (selectedLineData && !affectedLinesIndices.has(lineId)) {
-                const selectedLine = lineObjects[lineId];
-                const color = CATEGORY_COLORS[errorCategory];
-
-                // Turn the selected line to the error color
-                selectedLine.setStyle({ color: color });
-
-                // Track this line as affected
-                affectedLinesIndices.add(lineId);
-
-                // Assign an error ID
-                const errorId = `W${waveNumber}E${errorNumber}`;
-                const variablesToFix = selectRandomVariables(VARIABLES_PER_CATEGORY[errorCategory]);
-
-                // Store error data in the line object
-                selectedLine.errorData = {
-                    errorId: errorId,
-                    category: errorCategory,
-                    variables: variablesToFix,
-                    startTime: Date.now(),
-                    variableStartTimes: {}, // To record start time for each variable
-                    variableResolvedTimes: {}, // To record resolved time for each variable
-                    resolvedVariables: {}
-                };
-
-                // Store the emitted time
-                const emittedTime = Date.now();
-                errorLogs.push({
-                    errorId: errorId,
-                    waveNumber: waveNumber,
-                    errorNumber: errorNumber,
-                    lineId: lineId,
-                    category: errorCategory,
-                    emittedTime: emittedTime,
-                    resolvedTime: null,
-                    responseTime: null,
-                    variableTimes: {} // To store times for each variable
-                });
-
-                // Add circle marker over the line
-                const centerLatLng = getLineCenter(selectedLine);
-                const circleMarker = L.circleMarker(centerLatLng, {
-                    pane: 'circlesPane', // Assign the circle to the custom pane
-                    color: color,
-                    weight: 0,
-                    fillColor: color,
-                    fillOpacity: 0.5,
-                    radius: 15
-                }).addTo(map);
-
-                errorMarkers[lineId] = circleMarker;
-
-                // Update active error counter
-                updateErrorCounter();
-
-            } else {
-                console.warn(`Line with ID ${lineId} not found or already affected.`);
+            
+            const poly = lineObjects[lineId];
+            if (!poly) {
+                console.warn(`Line with ID ${lineId} not found in lineObjects.`);
+                return;
             }
+            
+            if (affectedLinesIndices.has(lineId)) {
+                console.warn(`Line with ID ${lineId} already in error state.`);
+                return;
+            }
+
+            
+            poly.setStyle({
+                color: 'green',
+                weight: 8,
+                opacity: 0.8
+            });
+
+            
+            poly.on('click', () => {
+                if (poly.errorData && !poly.errorData.isBlack) {
+                    if (!poly.errorData.puzzleStartTime) {
+                        poly.errorData.puzzleStartTime = Date.now();
+                    }
+                    buildErrorResolutionUI(poly.errorData);
+                    $('#resolveModal').show();
+                    $('#resolveButton').data('line-id', lineId);
+                    $('#resolveButton').data('error-id', poly.errorData.errorId);
+                }
+            });
+
+            const errorId = `W${waveNumber}E${errorNumber}`;
+            const startTime = Date.now();
+
+            // log
+            finalLogs.push({
+                errorId: errorId,
+                startTime: startTime,
+                resolvedTime: null,
+                totalResponseTime: null,
+                puzzleStartTime: null,
+                puzzleResponseTime: null,
+                puzzleCorrectness: null,
+                isBlack: false
+            });
+
+            
+            poly.errorData = {
+                errorId: errorId,
+                startTime: startTime,
+                puzzleStartTime: null,
+                puzzleTargets: [],
+                clickLog: [],
+                isBlack: false,
+                colorIntervalId: null
+            };
+
+            affectedLinesIndices.add(lineId);
+
+            
+            const centerLatLng = getLineCenter(poly);
+            const circleMarker = L.circleMarker(centerLatLng, {
+                pane: 'circlesPane',
+                color: 'green',
+                weight: 0,
+                fillColor: 'green',
+                fillOpacity: 0.5,
+                radius: 15
+            }).addTo(map);
+
+            errorMarkers[lineId] = circleMarker;
+
+            updateErrorCounter();
+            startColorTransition(poly, circleMarker);
         }
 
-        // Function to select random variables to fix
-        function selectRandomVariables(count) {
-            const variableKeys = Object.keys(VARIABLES);
-            const selectedVariables = [];
-            while (selectedVariables.length < count) {
-                const randomVar = variableKeys[Math.floor(Math.random() * variableKeys.length)];
-                if (!selectedVariables.includes(randomVar)) {
-                    selectedVariables.push(randomVar);
+        
+        function startColorTransition(poly, marker) {
+            const startTime = Date.now();
+            const intervalId = setInterval(() => {
+                if (!poly.errorData) {
+                    clearInterval(intervalId);
+                    return;
+                }
+                if (poly.errorData.isBlack) {
+                    clearInterval(intervalId);
+                    return;
+                }
+                const elapsed = (Date.now() - startTime) / 1000;
+                let newColor = '#90ee90'; 
+
+                if (elapsed >= 30) {
+                    newColor = 'black';
+                    poly.errorData.isBlack = true;
+                    poly.off('click');
+                    clearInterval(intervalId);
+
+                    
+                    const logEntry = finalLogs.find(l => l.errorId === poly.errorData.errorId);
+                    if (logEntry && !logEntry.resolvedTime) {
+                        
+                    }
+                    
+                    if ($('#resolveModal').is(':visible')) {
+                        const currErrorId = $('#resolveButton').data('error-id');
+                        if (currErrorId === poly.errorData.errorId) {
+                            $('#resolveModal').hide();
+                            alert("Time run out for the line.");
+                        }
+                    }
+                }
+                else if (elapsed >= 25) {
+                    newColor = '#b71c1c'; // dark red
+                }
+                else if (elapsed >= 22) {
+                    newColor = '#b71c1c'; 
+                }
+                else if (elapsed >= 20) {
+                    newColor = '#f44336'; // red
+                }
+                else if (elapsed >= 18) {
+                    newColor = '#ff8a80'; // light red
+                }
+                else if (elapsed >= 16) {
+                    newColor = '#ef6c00'; // dark orange
+                }
+                else if (elapsed >= 14) {
+                    newColor = '#ff9800'; // orange
+                }
+                else if (elapsed >= 12) {
+                    newColor = '#ffb74d'; // light orange
+                }
+                else if (elapsed >= 10) {
+                    newColor = '#fbc02d'; // dark yellow
+                }
+                else if (elapsed >= 8) {
+                    newColor = '#ffeb3b'; // standard yellow
+                }
+                else if (elapsed >= 6) {
+                    newColor = '#ffff99'; // light yellow
+                }
+                else if (elapsed >= 4) {
+                    newColor = '#006400'; // dark green
+                }
+                else if (elapsed >= 2) {
+                    newColor = '#32CD32'; // lime green
+                }
+                else {
+                    newColor = '#90ee90'; 
+                }
+
+                poly.setStyle({ color: newColor });
+                marker.setStyle({ color: newColor, fillColor: newColor });
+            }, TRANSITION_CHECK_INTERVAL);
+
+            poly.errorData.colorIntervalId = intervalId;
+        }
+
+        // Resolve button
+        $('#resolveButton').click(function() {
+            const lineId = $(this).data('line-id');
+            const errorId = $(this).data('error-id');
+            const poly = lineObjects[lineId];
+            if (!poly) return;
+
+            if (poly.errorData && poly.errorData.isBlack) {
+                alert("This error is no longer resolvable.");
+                $('#resolveModal').hide();
+                return;
+            }
+
+            let correctness = "wrong";
+            if (poly.errorData && poly.errorData.clickLog) {
+                const totalClicks = poly.errorData.clickLog.length;
+                let correctCount = poly.errorData.clickLog.filter(c => c.correct).length;
+                if (totalClicks === 5 && correctCount === 5) {
+                    correctness = "correct";
                 }
             }
-            return selectedVariables;
-        }
 
-        // Function to get the center point of a line
-        function getLineCenter(line) {
-            const latlngs = line.getLatLngs();
-            let totalLat = 0;
-            let totalLng = 0;
-            latlngs.forEach(latlng => {
-                totalLat += latlng.lat;
-                totalLng += latlng.lng;
-            });
-            return L.latLng(totalLat / latlngs.length, totalLng / latlngs.length);
-        }
+            
+            const marker = errorMarkers[lineId];
+            if (marker) {
+                map.removeLayer(marker);
+                delete errorMarkers[lineId];
+            }
 
-        // Function to build the error resolution UI
+            
+            map.removeLayer(poly);
+            delete lineObjects[lineId];
+            affectedLinesIndices.delete(lineId);
+
+            const now = Date.now();
+            const logEntry = finalLogs.find(l => l.errorId === errorId);
+            if (logEntry && !logEntry.resolvedTime) {
+                logEntry.resolvedTime = now;
+                logEntry.totalResponseTime = ((now - logEntry.startTime) / 1000).toFixed(2);
+                if (poly.errorData.puzzleStartTime) {
+                    logEntry.puzzleResponseTime = ((now - poly.errorData.puzzleStartTime) / 1000).toFixed(2);
+                }
+                logEntry.puzzleCorrectness = correctness;
+            }
+
+            updateErrorCounter();
+            checkAllErrorsResolved();
+            $('#resolveModal').hide();
+        });
+
+        
         function buildErrorResolutionUI(errorData) {
-            let errorContent = `<h3>Error ID: ${errorData.errorId}</h3>`;
-            errorContent += `<p>Error Category: ${errorData.category.toUpperCase()}</p>`;
-            errorContent += '<div id="variableControls">';
+            // Shuffle puzzle
+            const puzzleSymbols = [...MASTER_PUZZLE_SYMBOLS];
+            for (let i = puzzleSymbols.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [puzzleSymbols[i], puzzleSymbols[j]] = [puzzleSymbols[j], puzzleSymbols[i]];
+            }
+            const chosenTargets = puzzleSymbols.slice(0, 5);
 
-            errorData.variables.forEach((variableName, index) => {
-                const variableInfo = VARIABLES[variableName];
-                const variableId = `variable-${index}`;
-                const defaultValue = variableInfo.min + (variableInfo.max - variableInfo.min) * 0.9; // Set to 90% of max
+            errorData.puzzleTargets = chosenTargets;
+            errorData.clickLog = [];
 
-                errorData.variableStartTimes[variableName] = Date.now();
-
-                errorContent += `
-                    <div class="variable-control" data-variable-name="${variableName}">
-                        <span class="variable-label" style="color:red;">${variableName}:</span>
-                        <input type="range" min="${variableInfo.min}" max="${variableInfo.max}" value="${defaultValue}" step="1" class="variable-slider" id="${variableId}">
-                        <input type="text" class="variable-value" value="${defaultValue}" readonly>
-                    </div>
-                `;
+            let html = `
+                <h3>Error ID: ${errorData.errorId}</h3>
+                <p><b>Target Symbols (click 5 times):</b> ${chosenTargets.join(" , ")}</p>
+                <div id="puzzleGrid">
+            `;
+            MASTER_PUZZLE_SYMBOLS.forEach(symbol => {
+                html += `<div class="puzzle-cell" data-symbol="${symbol}">${symbol}</div>`;
             });
+            html += `</div>`;
 
-            errorContent += '</div>';
+            $('#errorDetails').html(html);
 
-            $('#errorDetails').html(errorContent);
+            document.querySelectorAll('.puzzle-cell').forEach(cell => {
+                cell.addEventListener('click', () => {
+                    if (!errorData.clickLog) return;
+                    if (errorData.clickLog.length >= 5) return;
 
-            // Attach event listeners to sliders
-            errorData.variables.forEach((variableName, index) => {
-                const variableInfo = VARIABLES[variableName];
-                const variableId = `variable-${index}`;
-                const slider = document.getElementById(variableId);
-                const valueDisplay = slider.nextElementSibling;
+                    const symbolClicked = cell.getAttribute('data-symbol');
+                    const correct = errorData.puzzleTargets.includes(symbolClicked);
 
-                slider.addEventListener('input', function() {
-                    const value = parseFloat(slider.value);
-                    valueDisplay.value = value;
+                    errorData.clickLog.push({ symbol: symbolClicked, correct, time: Date.now() });
+                    cell.style.backgroundColor = correct ? '#c8e6c9' : '#ffcdd2';
 
-                    // Check if value is within acceptable range (40% to 60% of the range)
-                    const acceptableMin = variableInfo.min + (variableInfo.max - variableInfo.min) * 0.4;
-                    const acceptableMax = variableInfo.min + (variableInfo.max - variableInfo.min) * 0.6;
-
-                    if (value >= acceptableMin && value <= acceptableMax) {
-                        // Mark variable as resolved
-                        slider.disabled = true;
-                        valueDisplay.style.color = 'green';
-                        const variableControl = slider.parentElement;
-                        variableControl.querySelector('.variable-label').style.color = 'green';
-
-                        errorData.resolvedVariables[variableName] = true;
-                        errorData.variableResolvedTimes[variableName] = Date.now();
-
-                        // Record time taken to resolve this variable
-                        const variableTime = (errorData.variableResolvedTimes[variableName] - errorData.variableStartTimes[variableName]) / 1000;
-                        const errorLog = errorLogs.find(log => log.errorId === errorData.errorId);
-                        if (errorLog) {
-                            const variableLabel = `${errorData.errorId}V${index + 1}`;
-                            errorLog.variableTimes[variableLabel] = variableTime;
-                        }
-
-                        // Check if all variables are resolved
-                        if (Object.keys(errorData.resolvedVariables).length === errorData.variables.length) {
-                            $('#resolveButton').prop('disabled', false);
-                        }
+                    if (errorData.clickLog.length === 5) {
+                        $('#resolveButton').prop('disabled', false);
                     }
                 });
             });
@@ -565,129 +649,127 @@
             $('#resolveButton').prop('disabled', true);
         }
 
-        // Handle Resolve Button Click
-        $('#resolveButton').click(function() {
-            const lineId = $(this).data('line-id');
-            const errorId = $(this).data('error-id');
-            const polyline = lineObjects[lineId];
-            if (polyline) {
-                polyline.setStyle({ color: "green" });
-                delete polyline.errorData;
-                affectedLinesIndices.delete(lineId);
-
-                // Remove the circle marker
-                const marker = errorMarkers[lineId];
-                if (marker) {
-                    map.removeLayer(marker);
-                    delete errorMarkers[lineId];
-                }
-
-                // Record the resolved time and compute response time
-                const resolvedTime = Date.now();
-                const errorLog = errorLogs.find(log => log.errorId === errorId);
-                if (errorLog && !errorLog.resolvedTime) {
-                    errorLog.resolvedTime = resolvedTime;
-                    errorLog.responseTime = (resolvedTime - errorLog.emittedTime) / 1000; // in seconds
-                }
-
-                // Update active error counter
-                updateErrorCounter();
-
-                // Check if all errors are resolved
-                checkAllErrorsResolved();
-            }
-            $('#resolveModal').hide();
-        });
-
-        // Check if all errors are resolved
+        // Utility
+        function updateErrorCounter() {
+            const activeErrors = affectedLinesIndices.size;
+            $('#errorCounter').text(`Active Errors: ${activeErrors}`);
+        }
         function checkAllErrorsResolved() {
-            const allResolved = errorLogs.length > 0 && errorLogs.every(log => log.resolvedTime !== null);
-            if (allResolved && !csvDownloaded) {
-                downloadCSVData();
+            if (affectedLinesIndices.size === 0 && !csvDownloaded) {
+                downloadCSVData(); 
                 displayCompletionMessage();
             }
         }
 
-        // Function to download CSV data
-        function downloadCSVData() {
+        // Download CSV
+        function downloadCSVData(waveSet = '') {
             csvDownloaded = true;
+            const csvLines = [];
+            csvLines.push(["Error ID","Total Response Time (s)","Puzzle Response Time (s)","Puzzle Correctness"]);
 
-            // Prepare data for CSV
-            const csvData = [];
-            csvData.push(['Error ID', 'Category', 'Total Response Time (s)', 'Variable ID', 'Variable Response Time (s)']);
-
-            errorLogs.forEach(log => {
-                const totalTime = log.responseTime ? log.responseTime.toFixed(2) : '';
-                const baseRow = [log.errorId, log.category, totalTime];
-                if (Object.keys(log.variableTimes).length === 0) {
-                    csvData.push([...baseRow, '', '']);
-                } else {
-                    Object.keys(log.variableTimes).forEach(variableId => {
-                        const variableTime = log.variableTimes[variableId].toFixed(2);
-                        csvData.push([...baseRow, variableId, variableTime]);
-                    });
-                }
+            finalLogs.forEach(log => {
+                const tRT = log.totalResponseTime ? log.totalResponseTime : "";
+                const pRT = log.puzzleResponseTime ? log.puzzleResponseTime : "";
+                const corr= log.puzzleCorrectness ? log.puzzleCorrectness : "";
+                csvLines.push([log.errorId, tRT, pRT, corr]);
             });
 
-            // Convert CSV array to string
-            const csvContent = csvData.map(e => e.join(",")).join("\n");
+            const csvContent = csvLines.map(row => row.join(",")).join("\n");
+            const filename = `Participant${participantNumber}_${waveSet}_data.csv`;
 
-            // Use Node.js fs module to save the file
-            // Open a save dialog
             dialog.showSaveDialog({
                 title: 'Save CSV File',
-                defaultPath: path.join(__dirname, 'error_response_times.csv'),
-                filters: [
-                    { name: 'CSV Files', extensions: ['csv'] }
-                ]
+                defaultPath: path.join(__dirname, filename),
+                filters: [ { name: 'CSV Files', extensions: ['csv'] } ]
             }).then(result => {
                 if (!result.canceled) {
                     fs.writeFileSync(result.filePath, csvContent);
                     alert('CSV file has been saved to ' + result.filePath);
                 }
-            }).catch(err => {
-                console.error('Error saving file:', err);
-            });
+            }).catch(err => console.error('Error saving file:', err));
         }
 
-        // Function to display completion message
         function displayCompletionMessage() {
-            // Display the response times
-            let resultsContent = '<h3>Response Times (in seconds)</h3><ul>';
-            errorLogs.forEach(log => {
-                resultsContent += `<li>${log.errorId}: ${log.responseTime ? log.responseTime.toFixed(2) : 'N/A'} seconds</li>`;
-                Object.keys(log.variableTimes).forEach(variableId => {
-                    resultsContent += `<ul><li>${variableId}: ${log.variableTimes[variableId].toFixed(2)} seconds</li></ul>`;
-                });
+            let msg = "<h3>Response Times</h3><ul>";
+            finalLogs.forEach(log => {
+                msg += `<li>${log.errorId}: `;
+                if (log.totalResponseTime) {
+                    msg += `Total=${log.totalResponseTime}s`;
+                } else {
+                    msg += `Total=N/A`;
+                }
+                if (log.puzzleResponseTime) {
+                    msg += `, Puzzle=${log.puzzleResponseTime}s`;
+                } else {
+                    msg += `, Puzzle=N/A`;
+                }
+                if (log.puzzleCorrectness) {
+                    msg += `, Correctness=${log.puzzleCorrectness}`;
+                } else {
+                    msg += `, Correctness=N/A`;
+                }
+                msg += `</li>`;
             });
-            resultsContent += '</ul>';
-
-            $('#completionMessage').html(resultsContent);
-            $('#completionModal').show();
+            msg += "</ul>";
+            $("#completionMessage").html(msg);
+            $("#completionModal").show();
         }
 
-        // Modal Functionality
-        // Get the modals and handle close events
-        var resolveModal = document.getElementById("resolveModal");
+        function getLineCenter(poly) {
+            const latlngs = poly.getLatLngs();
+            let totalLat = 0, totalLng = 0;
+            latlngs.forEach(ll => {
+                totalLat += ll.lat;
+                totalLng += ll.lng;
+            });
+            return L.latLng(totalLat / latlngs.length, totalLng / latlngs.length);
+        }
+
+        // Participant modal
+        $(document).ready(function() {
+            document.getElementById("participantModal").style.display = "block";
+        });
+        document.getElementById("participantClose").onclick = function() {
+            document.getElementById("participantModal").style.display = "none";
+        };
+        document.getElementById("submitParticipant").onclick = function() {
+            const inputVal = $('#participantInput').val().trim();
+            if (inputVal === '' || isNaN(inputVal) || parseInt(inputVal) <= 0) {
+                alert('Please enter a valid participant number.');
+                return;
+            }
+            participantNumber = parseInt(inputVal);
+            document.getElementById("participantModal").style.display = "none";
+            // Enable wave buttons
+            $('#startButtonSet1').prop('disabled', false);
+            $('#startButtonSet2').prop('disabled', false);
+        };
+        $('#participantInput').keypress(function(e) {
+            if (e.which == 13) {
+                document.getElementById("submitParticipant").click();
+            }
+        });
+
+        // Resolve & completion modals
+        var resolveModal    = document.getElementById("resolveModal");
         var completionModal = document.getElementById("completionModal");
-        var resolveSpan = document.getElementById("resolveClose");
-        var completionSpan = document.getElementById("completionClose");
+        var resolveSpan     = document.getElementById("resolveClose");
+        var completionSpan  = document.getElementById("completionClose");
 
         resolveSpan.onclick = function() {
             resolveModal.style.display = "none";
-        }
+        };
         completionSpan.onclick = function() {
             completionModal.style.display = "none";
-        }
-
+        };
         window.onclick = function(event) {
-            if (event.target == resolveModal) {
+            if (event.target === resolveModal) {
                 resolveModal.style.display = "none";
             }
-            if (event.target == completionModal) {
+            if (event.target === completionModal) {
                 completionModal.style.display = "none";
             }
-        }
+        };
     </script>
 </body>
 </html>

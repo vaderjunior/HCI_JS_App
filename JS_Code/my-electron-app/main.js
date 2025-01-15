@@ -16,12 +16,12 @@ function createWindow () {
         }
     });
 
-    remoteMain.enable(win.webContents); // Enable remote module for this window
+    remoteMain.enable(win.webContents); 
 
     win.loadFile('index.html');
 }
 
-// ... rest of your main.js code
+
 
 
 app.whenReady().then(() => {
